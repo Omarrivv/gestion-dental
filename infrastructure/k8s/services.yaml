@@ -1,0 +1,356 @@
+{{/* Reusable K8s service + deployment template */}}
+{{/* Each backend service follows this exact pattern */}}
+
+# ─── identity-service ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-service
+  namespace: dental
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: identity-service
+  template:
+    metadata:
+      labels:
+        app: identity-service
+    spec:
+      containers:
+        - name: identity-service
+          image: dental/identity-service:latest
+          ports:
+            - containerPort: 3001
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-service
+  namespace: dental
+spec:
+  selector:
+    app: identity-service
+  ports:
+    - port: 3001
+      targetPort: 3001
+---
+# ─── scheduling-service ──────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduling-service
+  namespace: dental
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: scheduling-service
+  template:
+    metadata:
+      labels:
+        app: scheduling-service
+    spec:
+      containers:
+        - name: scheduling-service
+          image: dental/scheduling-service:latest
+          ports:
+            - containerPort: 3002
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduling-service
+  namespace: dental
+spec:
+  selector:
+    app: scheduling-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+---
+# ─── clinical-service ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinical-service
+  namespace: dental
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: clinical-service
+  template:
+    metadata:
+      labels:
+        app: clinical-service
+    spec:
+      containers:
+        - name: clinical-service
+          image: dental/clinical-service:latest
+          ports:
+            - containerPort: 3003
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3003
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clinical-service
+  namespace: dental
+spec:
+  selector:
+    app: clinical-service
+  ports:
+    - port: 3003
+      targetPort: 3003
+---
+# ─── payments-service ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-service
+  namespace: dental
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payments-service
+  template:
+    metadata:
+      labels:
+        app: payments-service
+    spec:
+      containers:
+        - name: payments-service
+          image: dental/payments-service:latest
+          ports:
+            - containerPort: 3004
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3004
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-service
+  namespace: dental
+spec:
+  selector:
+    app: payments-service
+  ports:
+    - port: 3004
+      targetPort: 3004
+---
+# ─── reminders-service ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reminders-service
+  namespace: dental
+spec:
+  replicas: 1    # Single replica to prevent duplicate sends
+  selector:
+    matchLabels:
+      app: reminders-service
+  template:
+    metadata:
+      labels:
+        app: reminders-service
+    spec:
+      containers:
+        - name: reminders-service
+          image: dental/reminders-service:latest
+          ports:
+            - containerPort: 3005
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          resources:
+            requests: { cpu: 50m,  memory: 64Mi }
+            limits:   { cpu: 200m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reminders-service
+  namespace: dental
+spec:
+  selector:
+    app: reminders-service
+  ports:
+    - port: 3005
+      targetPort: 3005
+---
+# ─── reporting-service ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting-service
+  namespace: dental
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reporting-service
+  template:
+    metadata:
+      labels:
+        app: reporting-service
+    spec:
+      containers:
+        - name: reporting-service
+          image: dental/reporting-service:latest
+          ports:
+            - containerPort: 3006
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3006
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reporting-service
+  namespace: dental
+spec:
+  selector:
+    app: reporting-service
+  ports:
+    - port: 3006
+      targetPort: 3006
+---
+# ─── api-gateway ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: dental
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: dental/api-gateway:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: dental-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 200m, memory: 128Mi }
+            limits:   { cpu: 1000m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: dental
+spec:
+  type: ClusterIP
+  selector:
+    app: api-gateway
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# ─── Ingress ─────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dental-ingress
+  namespace: dental
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - dental.yourdomain.com
+      secretName: dental-tls
+  rules:
+    - host: dental.yourdomain.com
+      http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 3000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shell
+                port:
+                  number: 80

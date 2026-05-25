@@ -1,0 +1,200 @@
+version: "3.9"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ── Infrastructure ──────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: dental_postgres
+    environment:
+      POSTGRES_USER: dental_user
+      POSTGRES_PASSWORD: dental_pass
+      POSTGRES_DB: dental_saas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dental_user -d dental_saas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: dental_redis
+    command: redis-server --requirepass dental_redis_pass
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "dental_redis_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: dental_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: dental_user
+      RABBITMQ_DEFAULT_PASS: dental_pass
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:latest
+    container_name: dental_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  # ── Backend Services ────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: dental_api_gateway
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      API_GATEWAY_PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    logging: *default-logging
+
+  identity-service:
+    build:
+      context: ./services/identity-service
+      dockerfile: Dockerfile
+    container_name: dental_identity
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      IDENTITY_SERVICE_PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    logging: *default-logging
+
+  scheduling-service:
+    build:
+      context: ./services/scheduling-service
+      dockerfile: Dockerfile
+    container_name: dental_scheduling
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      SCHEDULING_SERVICE_PORT: 3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    logging: *default-logging
+
+  clinical-service:
+    build:
+      context: ./services/clinical-service
+      dockerfile: Dockerfile
+    container_name: dental_clinical
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      CLINICAL_SERVICE_PORT: 3003
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  payments-service:
+    build:
+      context: ./services/payments-service
+      dockerfile: Dockerfile
+    container_name: dental_payments
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PAYMENTS_SERVICE_PORT: 3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    logging: *default-logging
+
+  reminders-service:
+    build:
+      context: ./services/reminders-service
+      dockerfile: Dockerfile
+    container_name: dental_reminders
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      REMINDERS_SERVICE_PORT: 3005
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+
+  reporting-service:
+    build:
+      context: ./services/reporting-service
+      dockerfile: Dockerfile
+    container_name: dental_reporting
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      REPORTING_SERVICE_PORT: 3006
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:

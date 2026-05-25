@@ -1,0 +1,445 @@
+// =============================================================================
+// Dental SaaS — Prisma Schema
+// Multi-tenant: Row-Level tenancy via organizationId on every table.
+// Enforced at application layer (TenantMiddleware) + DB-level CHECK constraints.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("DATABASE_SHADOW_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum SubscriptionPlan {
+  STARTER      // 1 branch, up to 3 doctors
+  PROFESSIONAL // up to 5 branches
+  ENTERPRISE   // unlimited
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum UserRole {
+  SUPERADMIN
+  ORG_ADMIN
+  BRANCH_ADMIN
+  DOCTOR
+  RECEPTIONIST
+  PATIENT // portal-only access
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ReminderChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+}
+
+enum ReminderStatus {
+  SCHEDULED
+  SENT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN       // partially paid or unpaid
+  PAID       // fully paid
+  OVERDUE
+  CANCELLED
+}
+
+enum ToothCondition {
+  HEALTHY
+  CAVITY
+  FILLED
+  CROWN
+  MISSING
+  IMPLANT
+  ROOT_CANAL
+  EXTRACTION_NEEDED
+  BRIDGE_ABUTMENT
+  BRIDGE_PONTIC
+  SEALED
+}
+
+// ─── Level 1 — SuperAdmin scope ───────────────────────────────────────────────
+
+model SuperAdmin {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("super_admins")
+}
+
+// ─── Level 2 — Organization (Tenant) ─────────────────────────────────────────
+
+model Organization {
+  id             String             @id @default(uuid())
+  name           String
+  slug           String             @unique // URL slug, e.g. dental-omar-sv
+  logoUrl        String?            @map("logo_url")
+  primaryColor   String?            @map("primary_color") // hex
+  plan           SubscriptionPlan   @default(STARTER)
+  status         OrganizationStatus @default(ACTIVE)
+  trialEndsAt    DateTime?          @map("trial_ends_at")
+  subscriptionId String?            @map("subscription_id") // external billing ref
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  branches  Branch[]
+  users     User[]
+  patients  Patient[]
+
+  @@map("organizations")
+}
+
+// ─── Level 3 — Branch (Sucursal) ─────────────────────────────────────────────
+
+model Branch {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  address        String
+  city           String
+  phone          String?
+  email          String?
+  timezone       String   @default("America/El_Salvador")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operatingHours     BranchOperatingHour[]
+  userBranchAccess   UserBranchAccess[]
+  appointments       Appointment[]
+  invoices           Invoice[]
+
+  @@index([organizationId])
+  @@map("branches")
+}
+
+model BranchOperatingHour {
+  id         String @id @default(uuid())
+  branchId   String @map("branch_id")
+  dayOfWeek  Int    // 0=Sunday … 6=Saturday
+  openTime   String // "08:00"
+  closeTime  String // "18:00"
+  isOpen     Boolean @default(true) @map("is_open")
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, dayOfWeek])
+  @@map("branch_operating_hours")
+}
+
+// ─── Users / Staff ────────────────────────────────────────────────────────────
+
+model User {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  email          String
+  passwordHash   String   @map("password_hash")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  phone          String?
+  avatarUrl      String?  @map("avatar_url")
+  role           UserRole
+  isActive       Boolean  @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchAccess     UserBranchAccess[]
+  doctorSchedules  DoctorSchedule[]
+  appointments     Appointment[]      @relation("DoctorAppointments")
+  refreshTokens    RefreshToken[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model UserBranchAccess {
+  userId   String @map("user_id")
+  branchId String @map("branch_id")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  @@map("user_branch_access")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─── Doctor Availability ──────────────────────────────────────────────────────
+
+model DoctorSchedule {
+  id           String  @id @default(uuid())
+  doctorId     String  @map("doctor_id")
+  branchId     String  @map("branch_id")
+  dayOfWeek    Int     // 0=Sunday … 6=Saturday
+  startTime    String  // "09:00"
+  endTime      String  // "17:00"
+  slotMinutes  Int     @default(30) @map("slot_minutes")
+
+  doctor User @relation(fields: [doctorId], references: [id])
+
+  @@unique([doctorId, branchId, dayOfWeek])
+  @@index([branchId, dayOfWeek])
+  @@map("doctor_schedules")
+}
+
+// ─── Patients (scoped to org, not branch) ────────────────────────────────────
+
+model Patient {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  email          String?
+  phone          String
+  dateOfBirth    DateTime? @map("date_of_birth")
+  gender         String?
+  address        String?
+  bloodType      String?  @map("blood_type")
+  allergies      String[] // text array
+  currentMeds    String[] @map("current_meds")
+  notes          String?
+  // Portal access
+  portalEnabled  Boolean  @default(false) @map("portal_enabled")
+  portalPassHash String?  @map("portal_pass_hash")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+  clinicalRecords ClinicalRecord[]
+  invoices        Invoice[]
+  reminders       Reminder[]
+
+  @@index([organizationId])
+  @@index([organizationId, phone])
+  @@map("patients")
+}
+
+// ─── Appointments ─────────────────────────────────────────────────────────────
+
+model Appointment {
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  branchId       String            @map("branch_id")
+  patientId      String            @map("patient_id")
+  doctorId       String            @map("doctor_id")
+  treatmentType  String            @map("treatment_type")
+  status         AppointmentStatus @default(PENDING)
+  scheduledAt    DateTime          @map("scheduled_at")
+  durationMins   Int               @default(30) @map("duration_mins")
+  reason         String?
+  internalNotes  String?           @map("internal_notes")
+  cancelledAt    DateTime?         @map("cancelled_at")
+  cancelReason   String?           @map("cancel_reason")
+  completedAt    DateTime?         @map("completed_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  branch          Branch           @relation(fields: [branchId], references: [id])
+  patient         Patient          @relation(fields: [patientId], references: [id])
+  doctor          User             @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  clinicalRecord  ClinicalRecord?
+  reminders       Reminder[]
+  invoice         Invoice?
+
+  @@index([organizationId])
+  @@index([branchId, scheduledAt])
+  @@index([doctorId, scheduledAt])
+  @@index([patientId])
+  @@map("appointments")
+}
+
+// ─── Clinical Records & Odontogram ────────────────────────────────────────────
+
+model ClinicalRecord {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  patientId      String   @map("patient_id")
+  appointmentId  String   @unique @map("appointment_id")
+  doctorId       String   @map("doctor_id")
+  branchId       String   @map("branch_id")
+  chiefComplaint String?  @map("chief_complaint")
+  diagnosis      String?
+  treatmentDone  String?  @map("treatment_done")
+  prescription   String?
+  nextVisitNotes String?  @map("next_visit_notes")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  patient     Patient     @relation(fields: [patientId], references: [id])
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  files       ClinicalFile[]
+  toothEntries OdontogramEntry[]
+
+  @@index([organizationId, patientId])
+  @@map("clinical_records")
+}
+
+model OdontogramEntry {
+  id               String         @id @default(uuid())
+  clinicalRecordId String         @map("clinical_record_id")
+  toothNumber      Int            @map("tooth_number") // FDI notation: 11-48
+  surface          String?        // M, D, O, V, L, or null for whole tooth
+  condition        ToothCondition
+  notes            String?
+  recordedAt       DateTime       @default(now()) @map("recorded_at")
+
+  clinicalRecord ClinicalRecord @relation(fields: [clinicalRecordId], references: [id], onDelete: Cascade)
+
+  @@index([clinicalRecordId])
+  @@map("odontogram_entries")
+}
+
+model ClinicalFile {
+  id               String   @id @default(uuid())
+  clinicalRecordId String   @map("clinical_record_id")
+  organizationId   String   @map("organization_id")
+  fileName         String   @map("file_name")
+  fileType         String   @map("file_type") // image/jpeg, application/pdf, etc.
+  storageKey       String   @map("storage_key") // S3/MinIO object key
+  sizeBytes        Int      @map("size_bytes")
+  label            String?  // "Radiografía inicial", "Foto post-tratamiento", etc.
+  uploadedAt       DateTime @default(now()) @map("uploaded_at")
+
+  clinicalRecord ClinicalRecord @relation(fields: [clinicalRecordId], references: [id], onDelete: Cascade)
+
+  @@index([clinicalRecordId])
+  @@map("clinical_files")
+}
+
+// ─── Payments & Invoices ─────────────────────────────────────────────────────
+
+model Invoice {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  branchId       String        @map("branch_id")
+  patientId      String        @map("patient_id")
+  appointmentId  String?       @unique @map("appointment_id")
+  status         InvoiceStatus @default(OPEN)
+  subtotalCents  Int           @map("subtotal_cents")  // in minor currency units
+  discountCents  Int           @default(0) @map("discount_cents")
+  totalCents     Int           @map("total_cents")
+  currency       String        @default("USD")
+  dueDate        DateTime?     @map("due_date")
+  notes          String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+  appointment  Appointment? @relation(fields: [appointmentId], references: [id])
+  lineItems    InvoiceLineItem[]
+  payments     Payment[]
+
+  @@index([organizationId])
+  @@index([organizationId, branchId])
+  @@index([patientId])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String @id @default(uuid())
+  invoiceId   String @map("invoice_id")
+  description String
+  quantity    Int    @default(1)
+  unitCents   Int    @map("unit_cents")
+  totalCents  Int    @map("total_cents")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  invoiceId   String        @map("invoice_id")
+  amountCents Int           @map("amount_cents")
+  method      PaymentMethod
+  reference   String?       // transaction ref / receipt number
+  paidAt      DateTime      @default(now()) @map("paid_at")
+  notes       String?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// ─── Reminders ────────────────────────────────────────────────────────────────
+
+model Reminder {
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
+  appointmentId  String          @map("appointment_id")
+  patientId      String          @map("patient_id")
+  channel        ReminderChannel
+  status         ReminderStatus  @default(SCHEDULED)
+  scheduledFor   DateTime        @map("scheduled_for")
+  sentAt         DateTime?       @map("sent_at")
+  deliveredAt    DateTime?       @map("delivered_at")
+  failedAt       DateTime?       @map("failed_at")
+  failureReason  String?         @map("failure_reason")
+  externalId     String?         @map("external_id") // WhatsApp/Twilio message ID
+  templateName   String?         @map("template_name")
+  payload        Json            // rendered message vars
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  patient     Patient     @relation(fields: [patientId], references: [id])
+
+  @@index([organizationId])
+  @@index([scheduledFor, status])
+  @@map("reminders")
+}

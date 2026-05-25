@@ -1,0 +1,37 @@
+{
+  "name": "dental-saas",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "Multi-tenant SaaS platform for dental clinic management",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*",
+    "infrastructure/database"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "npm --workspace=@dental/database run migrate:deploy",
+    "db:migrate:dev": "npm --workspace=@dental/database run migrate:dev",
+    "db:seed": "npm --workspace=@dental/database run seed",
+    "db:studio": "npm --workspace=@dental/database run studio",
+    "clean": "turbo run clean && rimraf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prettier": "^3.3.0",
+    "rimraf": "^5.0.7",
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  }
+}
